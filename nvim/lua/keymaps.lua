@@ -74,3 +74,18 @@ vim.api.nvim_create_autocmd("LspAttach", {
     map("n", "<leader>d", vim.diagnostic.open_float, opts("Line diagnostics"))
   end,
 })
+
+-- ── Mouse copy ──
+-- Drag with the mouse to select inside one panel; letting go copies it to the Mac clipboard
+-- (like iTerm's copy-on-select, but the selection stays within the panel you started in).
+-- In the terminal column it then goes straight back to typing.
+map("x", "<LeftRelease>", function()
+  vim.cmd('normal! "+y')
+  if vim.bo.buftype == "terminal" then vim.cmd.startinsert() end
+end, { desc = "Copy mouse selection" })
+
+-- Briefly flash whatever was just copied.
+vim.api.nvim_create_autocmd("TextYankPost", {
+  group = vim.api.nvim_create_augroup("yank_flash", { clear = true }),
+  callback = function() vim.hl.on_yank({ timeout = 200 }) end,
+})
