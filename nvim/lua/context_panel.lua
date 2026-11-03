@@ -542,5 +542,6 @@ vim.api.nvim_create_user_command("ClaudeContext", M.toggle, { desc = "Toggle Cla
 vim.keymap.set("n", "<leader>ai", M.toggle, { desc = "Claude context / usage panel" })
 
 M.scan_tasks = scan_tasks -- exposed for debugging
+M.current_session = current_session -- used by the conversation tab (claude_turns.lua)
 
 return M

@@ -3,6 +3,7 @@
 local panels = {
   { "File tree", "<leader>e", "Neotree toggle" },
   { "Claude context & usage", "<leader>ai", "ClaudeContext" },
+  { "Claude conversation (turns)", "<leader>ac", "ClaudeTurns" },
   { "Terminal", "<leader>t", "TermToggle" },
   { "Beads issues (tab)", "<leader>b", "Beads" },
   { "Git changes", "<leader>gd", "CodeDiff" },

@@ -33,6 +33,7 @@ If you change the iTerm profile, re-export it into `iterm/Dotfiles.json`
 | `Space e` | File tree |
 | `Space t` | Terminal column, open at startup (Ctrl-Space to leave typing mode) |
 | `Space ai` | Claude context / usage / tasks / files card |
+| `Space ac` | Claude conversation tab: your prompts on the left, the whole turn on the right (y = copy reply) |
 | `Space gd` | Git changes |
 | `Space b` | Beads tab: issues on the left, details of the one under the cursor on the right (Enter = into details, q = back; Space b again = previous tab) |
 | `Space Space` | Find files |

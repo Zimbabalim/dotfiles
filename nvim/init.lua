@@ -39,3 +39,6 @@ require("beads")
 
 -- ask before quitting while the terminal is running
 require("quit_guard")
+
+-- <leader>ac Claude conversation tab (turns of the current session)
+require("claude_turns")
