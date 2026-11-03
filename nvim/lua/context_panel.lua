@@ -14,7 +14,7 @@
 -- <task-notification> Claude receives later gives the final status.
 --
 -- Files Claude touched come from the same transcript: successful Edit / Write / NotebookEdit calls.
--- Focus the card (<leader>ai again) and press Enter on a file to open it.
+-- Click a file, or focus the card (<leader>ai again) and press Enter on it, to open it.
 
 local M = {}
 
@@ -409,7 +409,7 @@ local function render()
   end
 
   add("")
-  add(" updated " .. os.date("%H:%M:%S", mtime) .. " · q close · ⏎ open file", { { 0, -1, "ClaudeCtxDim" } })
+  add(" updated " .. os.date("%H:%M:%S", mtime) .. " · q close · ⏎/click open", { { 0, -1, "ClaudeCtxDim" } })
   return lines, hls, line_files
 end
 
@@ -471,6 +471,11 @@ function M.open()
     vim.bo[state.buf].filetype = "claude-context"
     vim.keymap.set("n", "q", M.close, { buffer = state.buf, nowait = true })
     vim.keymap.set("n", "<CR>", M.open_file_under_cursor, { buffer = state.buf, nowait = true })
+    -- A plain click on a file row opens it too. (Cmd-click is iTerm's own: it opens the file
+    -- in the default app, and nvim never sees it.)
+    vim.keymap.set("n", "<LeftRelease>", function()
+      if state.line_files[vim.api.nvim_win_get_cursor(0)[1]] then M.open_file_under_cursor() end
+    end, { buffer = state.buf })
   end
   state.win = vim.api.nvim_open_win(state.buf, false, {
     relative = "editor",
