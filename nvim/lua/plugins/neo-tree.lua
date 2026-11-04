@@ -23,6 +23,8 @@ return {
       },
       filesystem = {
         follow_current_file = { enabled = true },
+        -- Watch the disk, so files made outside nvim (by Claude, git, the terminal) show up by themselves.
+        use_libuv_file_watcher = true,
         filtered_items = {
           hide_dotfiles = false,
           hide_gitignored = false,
