@@ -15,13 +15,23 @@
 --
 -- Files Claude touched come from the same transcript: successful Edit / Write / NotebookEdit calls.
 -- Click a file, or focus the card (<leader>ai again) and press Enter on it, to open it.
+--
+-- Mouse: drag the top border (the title row) to move the card. Drag the left, right or bottom
+-- border, or a bottom corner, to resize it. Dragging the bottom border down past the last line of
+-- content puts the height back on automatic.
 
 local M = {}
 
 local data_dir = vim.fn.expand("~/.cache/claude-context")
 local width = 44
+local min_width, min_height = 30, 3
 local ns = vim.api.nvim_create_namespace("claude_context_panel")
-local state = { buf = nil, win = nil, watcher = nil, timer = nil, line_files = {} }
+local state = {
+  buf = nil, win = nil, watcher = nil, timer = nil, line_files = {},
+  line_count = 1,
+  row = nil, col = nil, -- nil until dragged: the card sits in the top-right corner
+  height = nil, -- nil until resized: the card is as tall as its content
+}
 local baseline_cache = {} -- session_id -> tokens in first request
 
 local colors = {
@@ -413,10 +423,33 @@ local function render()
   return lines, hls, line_files
 end
 
+-- Rows the card can use: everything above the command line.
+local function screen_rows()
+  return vim.o.lines - vim.o.cmdheight
+end
+
+-- Where the card goes right now, kept fully on screen and below the buffer tabs (row 0).
+-- This doesn't change the stored position, so the card returns to it if the terminal grows back.
+local function placement()
+  local columns = vim.o.columns
+  local w = math.min(width, columns - 2)
+  local h = math.max(1, math.min(state.height or state.line_count, state.line_count, screen_rows() - 3))
+  local row = math.max(1, math.min(state.row or 1, screen_rows() - h - 2))
+  local col = math.max(0, math.min(state.col or columns - w - 3, columns - w - 2))
+  return { relative = "editor", anchor = "NW", row = row, col = col, width = w, height = h }
+end
+
+local function place()
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_set_config(state.win, placement())
+  end
+end
+
 local function redraw()
   if not (state.buf and vim.api.nvim_buf_is_valid(state.buf)) then return end
   local lines, hls, line_files = render()
   state.line_files = line_files or {}
+  state.line_count = #lines
   vim.bo[state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
   vim.bo[state.buf].modifiable = false
@@ -428,9 +461,7 @@ local function redraw()
       vim.api.nvim_buf_set_extmark(state.buf, ns, h[1], h[2], { end_col = e, hl_group = h[4] })
     end
   end
-  if state.win and vim.api.nvim_win_is_valid(state.win) then
-    vim.api.nvim_win_set_height(state.win, #lines)
-  end
+  place()
 end
 
 local function watch()
@@ -456,6 +487,85 @@ local function unwatch()
   end
 end
 
+-- Mouse move / resize. The grab in progress: which edges are held, and where the mouse and the
+-- card were when it started.
+local drag = nil
+
+local function start_drag(m)
+  if m.winid ~= state.win then return nil end
+  local c = vim.api.nvim_win_get_config(state.win)
+  local y, x = m.screenrow - 1, m.screencol - 1 -- 0-based, like the window config
+  local bottom = y == c.row + c.height + 1
+  local left, right = x == c.col, x == c.col + c.width + 1
+  local move = y == c.row
+  if not (move or bottom or left or right) then return nil end -- a click on the contents
+  return {
+    move = move, bottom = bottom, left = left, right = right,
+    y = m.screenrow, x = m.screencol, row = c.row, col = c.col, width = c.width, height = c.height,
+  }
+end
+
+-- Render only on release: each render re-reads every session file. Until then the text just clips.
+local function update_drag(d, m)
+  local dy, dx = m.screenrow - d.y, m.screencol - d.x
+  if d.move then
+    state.row, state.col = d.row + dy, d.col + dx
+  else
+    if d.bottom then
+      local h = math.max(min_height, math.min(d.height + dy, screen_rows() - d.row - 2))
+      state.height = h < state.line_count and h or nil
+    end
+    if d.left or d.right then
+      state.row, state.col = d.row, d.col
+      if d.right then
+        width = math.max(min_width, math.min(d.width + dx, vim.o.columns - d.col - 2))
+      else
+        width = math.max(min_width, math.min(d.width - dx, d.col + d.width))
+        state.col = d.col + d.width - width -- the right edge stays put
+      end
+    end
+  end
+  place()
+end
+
+-- Returns whether a drag was in progress, so the mouse release is known to be ours.
+local function end_drag()
+  local d = drag
+  if not d then return false end
+  drag = nil
+  vim.schedule(function()
+    if width ~= d.width then redraw() end
+  end)
+  return true
+end
+
+-- Mouse keys are mapped globally because the card usually isn't the focused window. Anything that
+-- isn't a grab on the card's border is passed through untouched. Windows can't be changed while
+-- an expr mapping runs, hence vim.schedule. Visual mode is left out on purpose: keymaps.lua has
+-- its own <LeftRelease> there for copy-on-select.
+local function map_mouse(key, handler)
+  for _, clicks in ipairs({ "", "2-", "3-", "4-" }) do
+    local lhs = "<" .. clicks .. key .. ">"
+    vim.keymap.set({ "n", "i", "t" }, lhs, function()
+      return handler() and "" or lhs
+    end, { expr = true, desc = "Claude panel: drag to move / resize" })
+  end
+end
+
+map_mouse("LeftMouse", function()
+  drag = start_drag(vim.fn.getmousepos())
+  return drag ~= nil
+end)
+
+map_mouse("LeftDrag", function()
+  if not drag then return false end
+  local d, m = drag, vim.fn.getmousepos()
+  vim.schedule(function() update_drag(d, m) end)
+  return true
+end)
+
+map_mouse("LeftRelease", end_drag)
+
 function M.close()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
@@ -473,25 +583,23 @@ function M.open()
     vim.keymap.set("n", "<CR>", M.open_file_under_cursor, { buffer = state.buf, nowait = true })
     -- A plain click on a file row opens it too. (Cmd-click is iTerm's own: it opens the file
     -- in the default app, and nvim never sees it.)
+    -- (This takes priority over the global mapping while the card is focused, so it has to end
+    -- drags too, or letting go of a border would open whatever file the cursor is on.)
     vim.keymap.set("n", "<LeftRelease>", function()
+      if end_drag() then return end
       if state.line_files[vim.api.nvim_win_get_cursor(0)[1]] then M.open_file_under_cursor() end
     end, { buffer = state.buf })
   end
-  state.win = vim.api.nvim_open_win(state.buf, false, {
-    relative = "editor",
-    anchor = "NE",
-    row = 1,
-    col = vim.o.columns - 1,
-    width = width,
-    height = 1,
+  state.win = vim.api.nvim_open_win(state.buf, false, vim.tbl_extend("force", placement(), {
     style = "minimal",
     border = "rounded",
     title = " Claude ",
     title_pos = "left",
     focusable = true,
     zindex = 40,
-  })
+  }))
   vim.wo[state.win].winhighlight = "Normal:NormalFloat,FloatBorder:FloatBorder"
+  vim.wo[state.win].wrap = false -- narrow or mid-resize, clip the text instead of wrapping it
   redraw()
   watch()
 end
@@ -528,14 +636,10 @@ function M.toggle()
   end
 end
 
--- Keep the card in the top-right corner when the terminal is resized.
+-- When the terminal is resized, keep the card in its corner (or, if dragged, on screen).
 vim.api.nvim_create_autocmd("VimResized", {
   group = vim.api.nvim_create_augroup("claude_context_panel", { clear = true }),
-  callback = function()
-    if state.win and vim.api.nvim_win_is_valid(state.win) then
-      vim.api.nvim_win_set_config(state.win, { relative = "editor", row = 1, col = vim.o.columns - 1 })
-    end
-  end,
+  callback = place,
 })
 
 vim.api.nvim_create_user_command("ClaudeContext", M.toggle, { desc = "Toggle Claude context panel" })
