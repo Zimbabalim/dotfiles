@@ -15,6 +15,20 @@ return {
   {
     "esmuellert/codediff.nvim",
     cmd = "CodeDiff",
+    -- When another nvim has a changed file open, CodeDiff's bufload() hits its swap file. bufload is
+    -- meant to load regardless, but inside a Lua callback the swap warning (E325) is raised as an
+    -- error, which breaks the diff view. Hide that warning for bufload only: :edit still shows it.
+    init = function()
+      local bufload = vim.fn.bufload
+      vim.fn.bufload = function(buf)
+        local shortmess = vim.o.shortmess
+        vim.o.shortmess = shortmess .. "A"
+        local ok, result = pcall(bufload, buf)
+        vim.o.shortmess = shortmess
+        if not ok then error(result, 0) end
+        return result
+      end
+    end,
     keys = {
       { "<leader>gd", "<cmd>CodeDiff<cr>", desc = "Changes (commit/diff explorer)" },
       { "<leader>gD", "<cmd>CodeDiff file HEAD<cr>", desc = "Diff this file vs HEAD" },
